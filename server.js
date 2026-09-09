@@ -39,11 +39,15 @@ app.post('/api/contact', upload.array('pieces_jointes', 2), async (req, res) => 
   }
 
   try {
-    // 1. Sauvegarde en BDD
-    await pool.query(
-      'INSERT INTO soumissions_contact (nom, email, sujet, message, ip_address, consentement_rgpd) VALUES (?, ?, ?, ?, ?, ?)',
-      [nom, email, sujet, message, req.ip, true]
-    );
+    // 1. Sauvegarde en BDD (best-effort : un échec ici n'empêche pas l'email de partir)
+    try {
+      await pool.query(
+        'INSERT INTO soumissions_contact (nom, email, sujet, message, ip_address, consentement_rgpd) VALUES (?, ?, ?, ?, ?, ?)',
+        [nom, email, sujet, message, req.ip, true]
+      );
+    } catch (dbErr) {
+      console.error('Sauvegarde BDD échouée (contact), envoi email quand même:', dbErr.message);
+    }
 
     // 2. Envoi email avec pièces jointes
     await transporter.sendMail({
@@ -79,11 +83,15 @@ app.post('/api/recrutement', upload.fields([
   }
 
   try {
-    // 1. Sauvegarde en BDD (nom des fichiers uniquement, pas leur contenu)
-    await pool.query(
-      'INSERT INTO candidatures_recrutement (nom, email, domaine, message, cv_nom_fichier, lettre_nom_fichier, ip_address, consentement_rgpd) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
-      [nom, email, domaine, message || null, cv.originalname, coverLetter ? coverLetter.originalname : null, req.ip, true]
-    );
+    // 1. Sauvegarde en BDD (best-effort : un échec ici n'empêche pas l'email de partir)
+    try {
+      await pool.query(
+        'INSERT INTO candidatures_recrutement (nom, email, domaine, message, cv_nom_fichier, lettre_nom_fichier, ip_address, consentement_rgpd) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [nom, email, domaine, message || null, cv.originalname, coverLetter ? coverLetter.originalname : null, req.ip, true]
+      );
+    } catch (dbErr) {
+      console.error('Sauvegarde BDD échouée (recrutement), envoi email quand même:', dbErr.message);
+    }
 
     // 2. Envoi email avec pièces jointes
     const attachments = [{ filename: cv.originalname, content: cv.buffer }];
