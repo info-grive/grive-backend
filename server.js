@@ -26,12 +26,15 @@ async function sendBrevoEmail({ subject, text, replyTo, attachments = [] }) {
     to: [{ email: process.env.EMAIL_TO }],
     replyTo: { email: replyTo },
     subject,
-    textContent: text,
-    attachment: attachments.map(a => ({
+    textContent: text
+  };
+
+  if (attachments.length > 0) {
+    payload.attachment = attachments.map(a => ({
       name: a.filename,
       content: a.content.toString('base64')
-    }))
-  };
+    }));
+  }
 
   const res = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
