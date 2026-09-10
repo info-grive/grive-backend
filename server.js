@@ -2,7 +2,6 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
-const nodemailer = require('nodemailer');
 const multer = require('multer');
 
 const app = express();
@@ -20,15 +19,35 @@ const pool = mysql.createPool({
   database: process.env.DB_NAME
 });
 
-const transporter = nodemailer.createTransport({
-  host: process.env.EMAIL_HOST,
-  port: Number(process.env.EMAIL_PORT),
-  secure: false,
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
+// Envoi d'email via l'API HTTP de Brevo (contourne le blocage des ports SMTP sur Render free tier)
+async function sendBrevoEmail({ subject, text, replyTo, attachments = [] }) {
+  const payload = {
+    sender: { email: process.env.EMAIL_FROM },
+    to: [{ email: process.env.EMAIL_TO }],
+    replyTo: { email: replyTo },
+    subject,
+    textContent: text,
+    attachment: attachments.map(a => ({
+      name: a.filename,
+      content: a.content.toString('base64')
+    }))
+  };
+
+  const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    method: 'POST',
+    headers: {
+      'accept': 'application/json',
+      'api-key': process.env.BREVO_API_KEY,
+      'content-type': 'application/json'
+    },
+    body: JSON.stringify(payload)
+  });
+
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Brevo API error ${res.status}: ${errText}`);
   }
-});
+}
 
 // --- FORMULAIRE CONTACT ---
 app.post('/api/contact', upload.array('pieces_jointes', 2), async (req, res) => {
@@ -50,11 +69,9 @@ app.post('/api/contact', upload.array('pieces_jointes', 2), async (req, res) => 
     }
 
     // 2. Envoi email avec pièces jointes
-    await transporter.sendMail({
-      from: process.env.EMAIL_FROM,
-      to: process.env.EMAIL_TO,
-      replyTo: email,
+    await sendBrevoEmail({
       subject: `Nouveau message de contact : ${sujet}`,
+      replyTo: email,
       text: `Nom: ${nom}\nEmail: ${email}\nTéléphone: ${phone || 'non renseigné'}\nSociété: ${societe || 'non renseignée'}\nLocalisation: ${localisation || 'non renseignée'}\n\nMessage:\n${message}`,
       attachments: (req.files || []).map(f => ({
         filename: f.originalname,
@@ -99,11 +116,9 @@ app.post('/api/recrutement', upload.fields([
       attachments.push({ filename: coverLetter.originalname, content: coverLetter.buffer });
     }
 
-    await transporter.sendMail({
-      from: process.env.EMAIL_FROM,
-      to: process.env.EMAIL_TO,
-      replyTo: email,
+    await sendBrevoEmail({
       subject: `Candidature spontanée : ${domaine}`,
+      replyTo: email,
       text: `Nom: ${nom}\nEmail: ${email}\nDomaine: ${domaine}\n\nMessage:\n${message || ''}`,
       attachments
     });
